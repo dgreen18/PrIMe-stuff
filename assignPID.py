@@ -13,7 +13,6 @@ import os
 from importChemkin import ModelMatcher
 from rdkit import Chem
 
-
 def createURLIDs(html_content):
     urls=[]
     IDs=[]
@@ -36,7 +35,8 @@ def masterInchi():
     urls=pickle.load(open("save.urls","rb"))
     urldict=pickle.load(open("save.urldict","rb"))
     for e in urls:
-        specontent=urllib2.urlopen(e).read()
+        request = urllib2.Request(e, None)
+        specontent=urllib2.urlopen(request, timeout=999999).read()
         for i in range(len(specontent)):
             if specontent[i:i+6]=='InChI"':
                 for n in range(0,105):
@@ -62,7 +62,8 @@ def addCAS():
     urldict=pickle.load(open("save.urldict","rb"))
     CASd=pickle.load(open("save.CASd","rb"))
     for e in CASurl:
-        specontent=urllib2.urlopen(e).read()
+        request = urllib2.Request(e, None)
+        specontent=urllib2.urlopen(request, timeout=999999).read()
         for i in range(len(specontent)):
             if specontent[i:i+17]=='CASRegistryNumber':
                 for n in range(0,19):
@@ -83,17 +84,21 @@ def CAStoInChI():
     for e in CASd:
 #         print CASd[e]
         try:
-            stuff=urllib2.urlopen('http://cactus.nci.nih.gov/chemical/structure/'+CASd[e]+'/stdinchi').read()
+            request = urllib2.Request('http://cactus.nci.nih.gov/chemical/structure/'+CASd[e]+'/stdinchi', None)
+            stuff=urllib2.urlopen(request, timeout=999999).read()
             Inchid[e]=stuff
             CASd[e]='deadmeat'+CASd[e]
 #         print CASd[e]
         except urllib2.URLError:
             pass
-    import ipdb; ipdb.set_trace()
+#     import ipdb; ipdb.set_trace()
     for e in CASd.keys():
         if 'deadmeat' in CASd[e]:
             del CASd[e]
+    for id in Inchid:
+        Inchid[id]=Chem.MolToInchi(Chem.MolFromInchi(Inchid[id]))
     pickle.dump(Inchid,open("save.Inchid","wb"))
+    print Inchid
     pickle.dump(CASd,open("save.CASd","wb"))
     
 def fuellist():
@@ -110,7 +115,8 @@ def addFuelIDs():
     urldict=pickle.load(open("save.urldict","rb"))
     fueld=pickle.load(open("save.fueld","rb"))
     for e in fuelurl:
-        specontent=urllib2.urlopen(e).read()
+        request = urllib2.Request(e, None)
+        specontent=urllib2.urlopen(request, timeout=999999).read()
         for i in range(len(specontent)):
             if specontent[i:i+6]=='FuelID':
                 for n in range(0,10):
@@ -138,7 +144,8 @@ def addformulas():
     urldict=pickle.load(open("save.urldict","rb"))
     extrad=pickle.load(open("save.extrad","rb"))
     for e in extraurl:
-        specontent=urllib2.urlopen(e).read()
+        request = urllib2.Request(e, None)
+        specontent=urllib2.urlopen(request, timeout=999999).read()
         for i in range(len(specontent)):
             if specontent[i:i+18]=='ime" type="formula':
                 for n in range(0,22):
@@ -162,7 +169,9 @@ def compileDicts():
     gasolined=pickle.load(open("save.gasolined","rb"))
     for d in (Inchid,CASd,fueld,extrad,gasolined):
         masterd.update(d)
+    inv_masterd={v: k for k, v in masterd.items()}
     pickle.dump(masterd,open("save.masterd","wb"))
+    pickle.dump(inv_masterd,open("save.inv_masterd","wb"))
     
 def importSmiles():
     smilesdict={}
@@ -180,23 +189,41 @@ def SmilestoInChI():
         for formula in smilesdict[file].keys():
             stripped=smilesdict[file][formula].strip('triplet')
             stripped=stripped.strip('singlet')
-            inchidict[file][formula]=Chem.MolToInchi(Chem.MolFromSmiles(stripped))
+            inchidict[file][stripped]=Chem.MolToInchi(Chem.MolFromSmiles(stripped))
     pickle.dump(inchidict,open("save.inchidict","wb"))
+    print inchidict
 
 def inchiMatch():
     inchimatch={}
     Inchid=pickle.load(open("save.Inchid","rb"))
+    print Inchid['s00010127']
     inv_Inchid={v: k for k, v in Inchid.items()}
     inchidict=pickle.load(open("save.inchidict","rb"))
     for file in inchidict.keys():
         inchimatch[file]={}
-        for formula in inchidict[file].keys():
-            if inchidict[file][formula] in Inchid.keys():
-                inchimatch[file][formula]=inv_Inchid[inchidict[file][formula]]
+        for smile in inchidict[file].keys():
+            if inchidict[file][smile] in inv_Inchid.keys():
+                inchimatch[file][smile]=inv_Inchid[inchidict[file][smile]]
+                print inv_Inchid[inchidict[file][smile]]
             else:
-                inchimatch[file][formula]='no InChI match'
+                inchimatch[file][smile]='no InChI match'
     pickle.dump(inchimatch,open("save.inchimatch","wb"))
-    print inchimatch
+
+def newPrimeID(species):
+    inv_masterd=pickle.load(open("save.inv_masterd","rb")) #might have to be Inchid, depending on how we end up specifying distinct species (sort out CAS, fuelIDs, formulas...)
+    if species.identifier in inv_masterd.keys():
+        return inv_masterd[species.identifier]      
+    else:
+        maxID=1
+        for id in masterd.keys():
+            idstripped=id.lstrip('s0')
+            if int(idstripped)>maxID:
+                maxID=int(idstripped)
+        maxID=maxID+1
+        while len(str(maxID))<8:
+            maxID='0'+str(maxID)
+        maxID='s'+maxID
+        return maxID
     
 def getAvailablePrimeID(catalogPath, pre):
 #     html_content = urllib2.urlopen('http://warehouse.primekinetics.org/depository/species/catalog/').read()
